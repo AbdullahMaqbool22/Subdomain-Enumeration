@@ -1,6 +1,6 @@
 # Subdomain Enumeration and Brute Forcing Tool
 
-This script is designed for cybersecurity professionals and enthusiasts to gather, deduplicate, check, and brute force subdomains for a given domain. It also checks for active and potentially sensitive subdomains, providing comprehensive results in separate files.
+This script is designed for cybersecurity professionals and enthusiasts to gather, deduplicate, check, and brute force subdomains for a given domain. It also checks for active and potentially sensitive subdomains, providing comprehensive results in separate files within an output folder.
 
 ## Features
 
@@ -8,7 +8,7 @@ This script is designed for cybersecurity professionals and enthusiasts to gathe
 - **Deduplication**: Remove duplicate subdomains to ensure unique entries.
 - **Active Subdomain Checking**: Verify which subdomains are active.
 - **Subdomain Brute Forcing**: Discover additional subdomains by brute forcing with a wordlist.
-- **Sensitive Subdomain Detection**: Identify and save subdomains containing sensitive keywords.
+- **Sensitive Subdomain Detection**: Identify subdomains containing sensitive keywords.
 - **Parallel Processing**: Utilize multi-threading for efficient subdomain checking and brute forcing.
 - **Progress Indicators**: Display progress bars for subdomain checking and brute forcing.
 
@@ -69,7 +69,7 @@ python3 subdomain_enum.py
 
 ### Script Output
 
-The script will generate the following files:
+The script will generate the following files in the `output` folder:
 - `active_subdomains.txt`: List of active subdomains found using enumeration tools.
 - `all_active_subdomains.txt`: Combined list of active subdomains from enumeration and brute forcing.
 - `sensitive_subdomains.txt`: List of subdomains containing sensitive keywords.
