@@ -63,9 +63,7 @@ def deduplicate(subdomains):
 def is_active(subdomain):
     try:
         response = requests.get(f"http://{subdomain}", timeout=3)
-        if response.status_code != 404:
-            return True
-        return False
+        return response.status_code != 404
     except requests.exceptions.RequestException:
         return False
 
@@ -89,19 +87,19 @@ def brute_force_subdomains(domain, wordlist):
             subdomains.update(results)
     return subdomains
 
-# Step 5: Check if subdomain is sensitive
-def check_sensitive_subdomains(subdomains, sensitive_wordlist):
-    sensitive_subdomains = []
-    with open(sensitive_wordlist) as file:
-        sensitive_keywords = file.read().splitlines()
-    for subdomain in subdomains:
-        if any(keyword in subdomain for keyword in sensitive_keywords):
-            sensitive_subdomains.append(subdomain)
+# Function to check if a subdomain contains sensitive keywords
+def is_sensitive(subdomain, sensitive_keywords):
+    return any(keyword in subdomain for keyword in sensitive_keywords)
+
+# Function to find sensitive subdomains
+def find_sensitive_subdomains(subdomains, sensitive_keywords):
+    sensitive_subdomains = [subdomain for subdomain in subdomains if is_sensitive(subdomain, sensitive_keywords)]
     return sensitive_subdomains
 
 # Step 6: Save to File
 def save_to_file(subdomains, filename):
-    with open(filename, "w") as file:
+    os.makedirs("results", exist_ok=True)
+    with open(os.path.join("results", filename), "w") as file:
         for subdomain in subdomains:
             file.write(f"{subdomain}\n")
 
@@ -110,35 +108,38 @@ if __name__ == "__main__":
     if not check_tools():
         print("One or more required tools are not installed. Please install them and ensure they are in your PATH.")
         exit(1)
-    
     domain = input("Enter the domain: ")
     wordlist = input("Enter the path to the wordlist: ")
-    sensitive_wordlist = input("Enter the path to the sensitive wordlist: ")
-    
-    output_folder = "output"
-    os.makedirs(output_folder, exist_ok=True)
+    sensitive_keywords = input("Enter the path to the sensitive keywords wordlist: ")
     
     print("Gathering subdomains...")
     subdomains = gather_subdomains(domain)
+    
     print("Deduplicating subdomains...")
     unique_subdomains = deduplicate(subdomains)
+    
     print("Checking active subdomains...")
     active_subdomains = check_active_subdomains(unique_subdomains)
-    save_to_file(active_subdomains, os.path.join(output_folder, "active_subdomains.txt"))
+    save_to_file(active_subdomains, "active_subdomains.txt")
     
     print("Brute forcing subdomains...")
     brute_forced_subdomains = brute_force_subdomains(domain, wordlist)
+    
     print("Deduplicating brute forced subdomains...")
     unique_brute_forced_subdomains = deduplicate(brute_forced_subdomains)
+    
     print("Checking active brute forced subdomains...")
     active_brute_forced_subdomains = check_active_subdomains(unique_brute_forced_subdomains)
+    save_to_file(active_brute_forced_subdomains, "active_brute_forced_subdomains.txt")
+    
     all_active_subdomains = deduplicate(active_subdomains + active_brute_forced_subdomains)
-    save_to_file(all_active_subdomains, os.path.join(output_folder, "all_active_subdomains.txt"))
     
-    print("Checking for sensitive subdomains...")
-    sensitive_subdomains = check_sensitive_subdomains(all_active_subdomains, sensitive_wordlist)
-    save_to_file(sensitive_subdomains, os.path.join(output_folder, "sensitive_subdomains.txt"))
+    print("Identifying sensitive subdomains...")
+    with open(sensitive_keywords) as f:
+        sensitive_words = f.read().splitlines()
+    sensitive_subdomains = find_sensitive_subdomains(all_active_subdomains, sensitive_words)
+    save_to_file(sensitive_subdomains, "sensitive_subdomains.txt")
     
-    print("Active subdomains saved to output folder.")
-    print("All active subdomains saved to output folder.")
-    print("Sensitive subdomains saved to output folder.")
+    print("Active subdomains saved to results/active_subdomains.txt")
+    print("Active brute-forced subdomains saved to results/active_brute_forced_subdomains.txt")
+    print("Sensitive subdomains saved to results/sensitive_subdomains.txt")
