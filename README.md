@@ -55,16 +55,16 @@ This script is designed for cybersecurity professionals and enthusiasts to gathe
 1. Clone the repository or download the script.
 2. Run the script:
    ```sh
-   python3 subdomain_enum.py
+   python3 main.py
    ```
 3. Provide the required inputs when prompted:
    - Domain name (e.g., `example.com`)
-   - Path to the wordlist for brute forcing subdomains (e.g., `/path/to/wordlist.txt`)
+   - Path to the wordlist for brute forcing subdomains (e.g., `/path/to/subdomain_wordlist.txt`)
 
 ### Example Command
 
 ```sh
-python3 subdomain_enum.py
+python3 main.py
 ```
 
 ### Script Output
