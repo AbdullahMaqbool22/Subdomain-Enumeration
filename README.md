@@ -27,7 +27,7 @@ This script is designed for cybersecurity professionals and enthusiasts to gathe
 1. Install Python 3.x from [python.org](https://www.python.org/).
 2. Install required Python modules:
    ```sh
-   pip install requests tqdm
+   pip install -r requirements.txt
    ```
 3. Ensure the required tools are installed:
    - **Sublist3r**:
