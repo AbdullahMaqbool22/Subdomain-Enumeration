@@ -1,6 +1,5 @@
 import os
 import subprocess
-import shlex
 import requests
 import shutil
 from tqdm import tqdm
@@ -9,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Function to run a command and return the output
 def run_command(command):
     try:
-        result = subprocess.run(shlex.split(command), capture_output=True, text=True, check=True)
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, check=True)
         return result.stdout
     except subprocess.CalledProcessError as e:
         print(f"Error running command: {command}\n{e}")
@@ -20,126 +19,148 @@ def run_command(command):
 
 # Function to check if required tools are installed
 def check_tools():
-    required_tools = ["sublist3r", "subfinder", "assetfinder", "ffuf"]
+    required_tools = ["sublist3r", "subfinder", "assetfinder", "httprobe"]
     for tool in required_tools:
         if not shutil.which(tool):
             print(f"Error: {tool} is not installed or not in PATH.")
             return False
     return True
 
-# Step 1: Gather Subdomains
-def gather_subdomains(domain):
+# Function to gather subdomains from various tools
+def gather_subdomains(domain, output_folder):
+    os.makedirs(output_folder, exist_ok=True)
     subdomains = set()
-
+    
     # Sublist3r
-    sublist3r_output = run_command(f"sublist3r -d {domain} -o sublist3r_output.txt")
-    if os.path.isfile("sublist3r_output.txt"):
-        with open("sublist3r_output.txt") as file:
-            subdomains.update(file.read().splitlines())
+    print("Running Sublist3r...")
+    sublist3r_output_file = os.path.join(output_folder, 'sublist3r_output.txt')
+    run_command(f"sublist3r -d {domain} -o {sublist3r_output_file}")
+    if os.path.isfile(sublist3r_output_file):
+        with open(sublist3r_output_file, 'r') as f:
+            subdomains.update(f.read().splitlines())
 
     # Subfinder
-    subfinder_output = run_command(f"subfinder -d {domain}")
-    subdomains.update(subfinder_output.splitlines())
+    print("Running Subfinder...")
+    subfinder_output_file = os.path.join(output_folder, 'subfinder_output.txt')
+    run_command(f"subfinder -d {domain} -o {subfinder_output_file}")
+    if os.path.isfile(subfinder_output_file):
+        with open(subfinder_output_file, 'r') as f:
+            subdomains.update(f.read().splitlines())
 
     # Assetfinder
-    assetfinder_output = run_command(f"assetfinder --subs-only {domain}")
-    subdomains.update(assetfinder_output.splitlines())
+    print("Running Assetfinder...")
+    assetfinder_output_file = os.path.join(output_folder, 'assetfinder_output.txt')
+    run_command(f"assetfinder --subs-only {domain} > {assetfinder_output_file}")
+    if os.path.isfile(assetfinder_output_file):
+        with open(assetfinder_output_file, 'r') as f:
+            subdomains.update(f.read().splitlines())
 
     # crt.sh
+    print("Gathering data from crt.sh...")
+    crtsh_output_file = os.path.join(output_folder, 'crtsh_output.txt')
     crtsh_response = requests.get(f"https://crt.sh/?q=%25.{domain}&output=json")
     if crtsh_response.status_code == 200:
         crtsh_subdomains = {entry["name_value"] for entry in crtsh_response.json()}
+        with open(crtsh_output_file, 'w') as f:
+            f.writelines(f"{sub}\n" for sub in crtsh_subdomains)
         subdomains.update(crtsh_subdomains)
     else:
         print("Error fetching data from crt.sh")
 
-    return subdomains
+    # Save all subdomains to a single file
+    all_subdomains_file = os.path.join(output_folder, 'all_subdomains.txt')
+    with open(all_subdomains_file, 'w') as f:
+        unique_subdomains = sorted(subdomains)
+        f.writelines(f"{sub}\n" for sub in unique_subdomains)
+    
+    return all_subdomains_file
 
-# Step 2: Deduplicate Subdomains
-def deduplicate(subdomains):
-    return list(set(subdomains))
+# Function to deduplicate a list of subdomains
+def deduplicate(file_path):
+    with open(file_path, 'r') as f:
+        unique_lines = sorted(set(f.read().splitlines()))
+    with open(file_path, 'w') as f:
+        f.writelines(f"{line}\n" for line in unique_lines)
+    return unique_lines
 
-# Function to check if a subdomain is active
-def is_active(subdomain):
-    try:
-        response = requests.get(f"http://{subdomain}", timeout=3)
-        return response.status_code != 404
-    except requests.exceptions.RequestException:
-        return False
+# Function to check if a subdomain is active using httprobe
+def is_active_with_httprobe(subdomains):
+    active_subdomains = set()
+    with subprocess.Popen(['httprobe'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) as proc:
+        for subdomain in subdomains:
+            proc.stdin.write(f"{subdomain}\n")
+        proc.stdin.close()
 
-# Step 3: Check Active Subdomains with progress bar and parallel processing
-def check_active_subdomains(subdomains):
-    active_subdomains = []
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(tqdm(executor.map(is_active, subdomains), total=len(subdomains), desc="Checking subdomains", unit="subdomain"))
-    for subdomain, is_active_flag in zip(subdomains, results):
-        if is_active_flag:
-            active_subdomains.append(subdomain)
-    return active_subdomains
+        for line in proc.stdout:
+            active_subdomains.add(line.strip())
 
-# Step 4: Brute Force Subdomains
-def brute_force_subdomains(domain, wordlist):
-    subdomains = set()
-    with open(wordlist) as file:
-        words = file.read().splitlines()
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            results = list(tqdm(executor.map(lambda word: f"{word}.{domain}", words), total=len(words), desc="Brute forcing subdomains", unit="subdomain"))
-            subdomains.update(results)
-    return subdomains
+    return list(active_subdomains)
+
+# Updated function to check active subdomains
+def check_active_subdomains(subdomains, output_folder):
+    print("Checking active subdomains with httprobe...")
+    active_subdomains_file = os.path.join(output_folder, 'active_subdomains.txt')
+
+    active_subdomains = is_active_with_httprobe(subdomains)
+
+    with open(active_subdomains_file, 'w') as f:
+        f.writelines(f"{sub}\n" for sub in active_subdomains)
+
+    return active_subdomains_file
 
 # Function to check if a subdomain contains sensitive keywords
 def is_sensitive(subdomain, sensitive_keywords):
     return any(keyword in subdomain for keyword in sensitive_keywords)
 
 # Function to find sensitive subdomains
-def find_sensitive_subdomains(subdomains, sensitive_keywords):
-    sensitive_subdomains = [subdomain for subdomain in subdomains if is_sensitive(subdomain, sensitive_keywords)]
-    return sensitive_subdomains
+def find_sensitive_subdomains(active_subdomains_file, sensitive_keywords_file, output_folder):
+    sensitive_subdomains = []
+    sensitive_subdomains_file = os.path.join(output_folder, 'sensitive_subdomains.txt')
 
-# Step 6: Save to File
-def save_to_file(subdomains, filename):
-    os.makedirs("results", exist_ok=True)
-    with open(os.path.join("results", filename), "w") as file:
-        for subdomain in subdomains:
-            file.write(f"{subdomain}\n")
+    with open(sensitive_keywords_file, 'r') as f:
+        sensitive_keywords = f.read().splitlines()
 
-# Main Function
+    with open(active_subdomains_file, 'r') as f:
+        active_subdomains = f.read().splitlines()
+
+    for subdomain in tqdm(active_subdomains, desc="Identifying sensitive subdomains", unit="subdomain"):
+        if is_sensitive(subdomain, sensitive_keywords):
+            sensitive_subdomains.append(subdomain)
+
+    with open(sensitive_subdomains_file, 'w') as f:
+        f.writelines(f"{sub}\n" for sub in sensitive_subdomains)
+
+    return sensitive_subdomains_file
+
+# Main function
 if __name__ == "__main__":
     if not check_tools():
         print("One or more required tools are not installed. Please install them and ensure they are in your PATH.")
         exit(1)
-    domain = input("Enter the domain: ")
-    wordlist = input("Enter the path to the wordlist: ")
-    sensitive_keywords = input("Enter the path to the sensitive keywords wordlist: ")
-    
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Subdomain Enumeration and Analysis Tool")
+    parser.add_argument('-d', '--domain', required=True, help="Domain to enumerate")
+    parser.add_argument('-w', '--wordlist', required=True, help="Path to the wordlist for brute forcing")
+    parser.add_argument('-s', '--sensitive', required=True, help="Path to the sensitive keywords wordlist")
+    args = parser.parse_args()
+
+    domain = args.domain
+    wordlist = args.wordlist
+    sensitive_keywords = args.sensitive
+    output_folder = "results"
+
     print("Gathering subdomains...")
-    subdomains = gather_subdomains(domain)
-    
-    print("Deduplicating subdomains...")
-    unique_subdomains = deduplicate(subdomains)
-    
+    all_subdomains_file = gather_subdomains(domain, output_folder)
+
     print("Checking active subdomains...")
-    active_subdomains = check_active_subdomains(unique_subdomains)
-    save_to_file(active_subdomains, "active_subdomains.txt")
-    
-    print("Brute forcing subdomains...")
-    brute_forced_subdomains = brute_force_subdomains(domain, wordlist)
-    
-    print("Deduplicating brute forced subdomains...")
-    unique_brute_forced_subdomains = deduplicate(brute_forced_subdomains)
-    
-    print("Checking active brute forced subdomains...")
-    active_brute_forced_subdomains = check_active_subdomains(unique_brute_forced_subdomains)
-    save_to_file(active_brute_forced_subdomains, "active_brute_forced_subdomains.txt")
-    
-    all_active_subdomains = deduplicate(active_subdomains + active_brute_forced_subdomains)
-    
+    deduplicated_subdomains = deduplicate(all_subdomains_file)
+    active_subdomains_file = check_active_subdomains(deduplicated_subdomains, output_folder)
+
     print("Identifying sensitive subdomains...")
-    with open(sensitive_keywords) as f:
-        sensitive_words = f.read().splitlines()
-    sensitive_subdomains = find_sensitive_subdomains(all_active_subdomains, sensitive_words)
-    save_to_file(sensitive_subdomains, "sensitive_subdomains.txt")
-    
-    print("Active subdomains saved to results/active_subdomains.txt")
-    print("Active brute-forced subdomains saved to results/active_brute_forced_subdomains.txt")
-    print("Sensitive subdomains saved to results/sensitive_subdomains.txt")
+    sensitive_subdomains_file = find_sensitive_subdomains(active_subdomains_file, sensitive_keywords, output_folder)
+
+    print(f"All subdomains saved to {all_subdomains_file}")
+    print(f"Active subdomains saved to {active_subdomains_file}")
+    print(f"Sensitive subdomains saved to {sensitive_subdomains_file}")
